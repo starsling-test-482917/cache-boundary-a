@@ -1,0 +1,38 @@
+name: disk-a-net
+on: [workflow_dispatch]
+jobs:
+  net:
+    runs-on: starsling-ubuntu-26.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: tcpdump availability
+        run: |
+          which tcpdump || echo "tcpdump: not installed"
+          sudo -n true && echo "sudo -n: ok" || echo "sudo -n: denied"
+          id
+      - name: start capture (SNI/DNS metadata only)
+        run: |
+          if sudo -n which tcpdump >/dev/null 2>&1; then
+            sudo -n timeout 60 tcpdump -i any -c 20 -n -l 'tcp port 443 and host runners.starsling.dev' > /tmp/cap443.txt 2>&1 &
+            sudo -n timeout 60 tcpdump -i any -c 20 -n -l 'udp port 53' > /tmp/cap53.txt 2>&1 &
+            sleep 2; echo started
+          else echo "tcpdump unavailable"; fi
+      - name: Disks
+        id: disks
+        continue-on-error: true
+        uses: starslingdev/disks@v0
+        with:
+          name: cache-a
+          auto-mount: 'false'
+          publish: on-change
+          on-degraded: fail
+      - name: capture results
+        if: always()
+        run: |
+          sleep 5
+          getent hosts runners.starsling.dev || true
+          echo "--- tcp443 capture"; sudo -n cat /tmp/cap443.txt 2>&1 | head -40 || true
+          echo "--- dns capture"; sudo -n cat /tmp/cap53.txt 2>&1 | head -40 || true
+          echo "outputs: ${{ toJSON(steps.disks.outputs) }}"
